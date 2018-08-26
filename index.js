@@ -3,152 +3,181 @@ const WebSocketServer = require('ws').Server
 const express = require('express')
 const bodyParser = require('body-parser')
 const app = express()
-const wss = new WebSocketServer({ server: server })
+const ws_phone = new WebSocketServer({ server: server })
+const fs = require('fs')
+const extend = require('util')._extend
+const watson = require('watson-developer-cloud')
+const WebSocket = require('ws');
 
-// Inbound number for display
-const inbound_number = process.env.INBOUND_NUMBER || '-'
+// When running on Bluemix we will get config data from VCAP_SERVICES
+// and a user variable named VCAP_SERVICES
+// When running locally we will read config from 'vcap-local.json'
+var vcapServices = process.env.VCAP_SERVICES;
+if (!vcapServices) {
+  console.log ("No VCAP_SERVICES variable so create empty one")
+  vcapServices = {};
+} else {
+  vcapServices = JSON.parse(vcapServices);
+  console.log("Data from process.env.VCAP_SERVICES:", JSON.stringify(vcapServices));
+}
+if (fs.existsSync("vcap-local.json")) {
+  //When running locally, the VCAP_SERVICES will not be set so read from vcap-local.json
+  // console.log ("Original env data "+JSON.stringify(vcapServices));
+  var jsonData = fs.readFileSync("vcap-local.json", "utf-8");
+  // console.log ("vcap-local.json contents\n"+jsonData);
+  var localJSON = JSON.parse(jsonData);
+  console.log ("Parsed local data:", JSON.stringify(localJSON));
+  vcapServices = extend(vcapServices,localJSON.VCAP_SERVICES);
+}
+console.log("Merged vcapServices:", JSON.stringify(vcapServices));
+var stt_credentials = {
+  version: 'v1',
+  url: vcapServices.speech_to_text[0].credentials.url,
+  username: vcapServices.speech_to_text[0].credentials.username,
+  password: vcapServices.speech_to_text[0].credentials.password
+};
+var stt_auth = watson.authorization(stt_credentials);
 
+function get_token() {
+  var token = null
+  console.log ("Getting a STT token with credentials", JSON.stringify(stt_credentials));
+  return new Promise((resolve, reject) => {
+    stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
+      if (error) {
+        console.log(error)
+        reject(error)
+      }
+      console.log("STT token", response)
+      resolve(response)
+    })
+  })
+}
+
+// const model = 'fr-FR_BroadbandModel';
+const model = 'en-US_NarrowbandModel';
+var token = get_token();
 
 app.use(express.static('static'))
 app.enable('trust proxy')
 
 app.get('/answer', (req, res) => {
+  console.log('GET on /answer')
 
-  const input_url =
-    (req.secure ? 'https' : 'http') + '://' +
-    req.headers.host + '/input'
+  const conn_id = Math.random().toString().substr(2,4)
+  const ws_url =
+    (req.secure ? 'wss' : 'ws') + '://' +
+    req.headers.host + '/server/' + conn_id
+  console.log('ws_url:', ws_url)
+
+  old_text = 'Enter that code on your screen now'
+  long_text = 'Welcome to the Watson phone based speech recognition demo. Say what you like and when you pause Watson will tell you what it heard'
+  short_text = 'speak to see if Watson understands you'
 
   res.send([
     {
       action: 'talk',
-      text: 'Enter that code on your screen now'
+      text: short_text
     },
     {
-      action: 'input',
-      eventUrl: [input_url],
-      timeOut: 10,
-      maxDigits: 4
+      'action': 'connect',
+      'endpoint': [
+        {
+          'type': 'websocket',
+          'uri': ws_url,
+          'content-type': 'audio/l16;rate=16000',
+          'headers': {}
+        }
+      ]
     }
   ])
 
 })
 
 app.post('/event', bodyParser.json(), (req, res) => {
-  console.log('event>', req.body)
+  console.log('POST to event>', req.body)()
   res.sendStatus(200)
 })
 
+var n = stt_credentials.url.indexOf('://')
+var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?watson-token='
+console.log('Base STT WS url', stt_ws_url)
 
-app.post('/input', bodyParser.json(), (req, res) => {
+var data_notified = false
 
-  console.log(`connecting ${req.body.uuid} to ${req.body.dtmf}`)
-
-  const ws_url =
-    (req.secure ? 'wss' : 'ws') + '://' +
-    req.headers.host + '/server/' + req.body.dtmf
-
-
-  if(pins.has(req.body.dtmf)) {
-    res.send([
-      {
-        action: 'talk',
-        text: 'connecting you'
-      },
-      {
-        'action': 'connect',
-        'endpoint': [
-          {
-            'type': 'websocket',
-            'uri': ws_url,
-            'content-type': 'audio/l16;rate=16000',
-            'headers': {}
-          }
-        ]
-      }
-    ])
-  } else {
-
-    res.send([
-      {
-        action: 'talk',
-        text: 'Couldn\'t find a matching call, sorry'
-      }
-    ])
-
-  }
-
-})
-
-// keep track of who is talking to who
-const connections = new Map
-const pins = new Map
-
-
-const generatePIN = () => {
-  for (var i = 0; i < 3; i++) {
-    const attempt = Math.random().toString().substr(2,4)
-
-    if(!pins.has(attempt)) return attempt
-  }
-  return 'nope'
-}
-
-
-wss.on('connection', ws => {
-
+ws_phone.on('connection', ws => {
+  console.log('WebSocket connected')
   const url = ws.upgradeReq.url
+  console.log('url:', url)
 
-  const serverRE = /^\/server\/(\d{4})$/
+  var stt_connected = false;
+  console.log("Opening STT ws with token", token)
+  this_stt_ws_url = stt_ws_url+token+'&model='+model
+  console.log('STT WS url:', stt_ws_url)
+  var stt_ws = new WebSocket(this_stt_ws_url);
+  stt_ws.on('connection', ws => {
+    console.log('STT is now connected');
+    stt_connected  = true
+  });
+  stt_ws.on('message', message => {
+      try {
+        var json = JSON.parse(message.data);
+        console.log("JSON from STT:", json);
+      } catch (e) {
+        console.log('This STT response is not a valid JSON: ', message.data);
+        return;
+      }
+  });
 
-  if(url == '/browser') {
-
-    var pin = generatePIN()
-
-    ws.send(JSON.stringify({ pin, inbound_number }))
-
-    pins.set(pin, ws)
-
-    ws.on('close', () => {
-      pins.delete(pin)
-    })
-
-  } else
-
-  if(url.match(serverRE)) {
-
-    const digits = url.match(serverRE)[1]
-
-    const client = pins.get(digits)
-    if(client) {
-      console.log('found client!!')
-      connections.set(ws, client)
-      connections.set(client, ws)
-    }
-
-
-  }
-
-
-
+  var msg_count = 0;
   ws.on('message', data => {
-    const other = connections.get(ws)
-
-    if(other && other.readyState == ws.OPEN) {
-      other.send(data)
-
-      console.log('proxy: ', ws.upgradeReq.url, '  ---->  ', other.upgradeReq.url)
+    // TODO Change this to issue messages based on time
+    if ((msg_count%200)==0) {
+      console.log('message received on WebSocket', data)
+      // console.log(typeof data)
+      console.log('data.length', data.length)
+      data_notified = true
     }
+    msg_count += 1;
 
+    if (stt_connected) {
+      console.log('Sending received audio to STT')
+      stt_ws.send(data)
+    } else {
+      console.log('Ignore this audio because STT is not yet connected')
+    }
   })
 
   ws.on('close', () => {
-    console.log('closing')
-    connections.delete(ws)
+    console.log('WebSocket closing')
+    stt_ws.close()
   })
 
 
 })
 
+
+// var connection = new WebSocket('ws://127.0.0.1:1337');
+
+// connection.onopen = function () {
+//   // connection is opened and ready to use
+// };
+
+// connection.onerror = function (error) {
+//   // an error occurred when sending/receiving data
+// };
+
+// connection.onmessage = function (message) {
+//   // try to decode json (I assume that each message
+//   // from server is json)
+//   try {
+//     var json = JSON.parse(message.data);
+//   } catch (e) {
+//     console.log('This doesn\'t look like a valid JSON: ',
+//         message.data);
+//     return;
+//   }
+//  // handle incoming message
+// };
 
 server.on('request', app)
 
