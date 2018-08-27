@@ -1,3 +1,4 @@
+
 const server = require('http').createServer()
 const WebSocketServer = require('ws').Server
 const express = require('express')
@@ -38,24 +39,9 @@ var stt_credentials = {
 };
 var stt_auth = watson.authorization(stt_credentials);
 
-function get_token() {
-  var token = null
-  console.log ("Getting a STT token with credentials", JSON.stringify(stt_credentials));
-  return new Promise((resolve, reject) => {
-    stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
-      if (error) {
-        console.log(error)
-        reject(error)
-      }
-      console.log("STT token", response)
-      resolve(response)
-    })
-  })
-}
 
 // const model = 'fr-FR_BroadbandModel';
 const model = 'en-US_NarrowbandModel';
-var token = get_token();
 
 app.use(express.static('static'))
 app.enable('trust proxy')
@@ -94,7 +80,7 @@ app.get('/answer', (req, res) => {
 })
 
 app.post('/event', bodyParser.json(), (req, res) => {
-  console.log('POST to event>', req.body)()
+  console.log('POST to event>', req.body)
   res.sendStatus(200)
 })
 
@@ -110,29 +96,36 @@ ws_phone.on('connection', ws => {
   console.log('url:', url)
 
   var stt_connected = false;
-  console.log("Opening STT ws with token", token)
-  this_stt_ws_url = stt_ws_url+token+'&model='+model
-  console.log('STT WS url:', stt_ws_url)
-  var stt_ws = new WebSocket(this_stt_ws_url);
-  stt_ws.on('connection', ws => {
-    console.log('STT is now connected');
-    stt_connected  = true
-  });
-  stt_ws.on('message', message => {
-      try {
-        var json = JSON.parse(message.data);
-        console.log("JSON from STT:", json);
-      } catch (e) {
-        console.log('This STT response is not a valid JSON: ', message.data);
-        return;
-      }
+  var stt_ws = null;
+
+  stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
+    if (error) {
+      console.log(error)
+      reject(error)
+    }
+    console.log("STT token", response)
+    this_stt_ws_url = stt_ws_url+response+'&model='+model
+    console.log('STT WS url:', stt_ws_url)
+    stt_ws = new WebSocket(this_stt_ws_url);
+    stt_connected  = true;
+    stt_ws.on('message', message => {
+        console.log('Message from STT', message)
+        try {
+          var json = JSON.parse(message.data);
+          console.log("JSON from STT:", json);
+        } catch (e) {
+          console.log('This STT response is not a valid JSON: ', messageß);
+          return;
+        }
+    });
   });
 
   var msg_count = 0;
   ws.on('message', data => {
     // TODO Change this to issue messages based on time
-    if ((msg_count%200)==0) {
-      console.log('message received on WebSocket', data)
+    // if ((msg_count%200)==0) {
+    if (true) {
+        console.log('message received on WebSocket', data)
       // console.log(typeof data)
       console.log('data.length', data.length)
       data_notified = true
@@ -149,35 +142,12 @@ ws_phone.on('connection', ws => {
 
   ws.on('close', () => {
     console.log('WebSocket closing')
-    stt_ws.close()
+    if (stt_ws)
+      stt_ws.close()
   })
 
 
 })
-
-
-// var connection = new WebSocket('ws://127.0.0.1:1337');
-
-// connection.onopen = function () {
-//   // connection is opened and ready to use
-// };
-
-// connection.onerror = function (error) {
-//   // an error occurred when sending/receiving data
-// };
-
-// connection.onmessage = function (message) {
-//   // try to decode json (I assume that each message
-//   // from server is json)
-//   try {
-//     var json = JSON.parse(message.data);
-//   } catch (e) {
-//     console.log('This doesn\'t look like a valid JSON: ',
-//         message.data);
-//     return;
-//   }
-//  // handle incoming message
-// };
 
 server.on('request', app)
 
