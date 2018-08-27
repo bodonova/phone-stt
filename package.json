@@ -2,8 +2,8 @@
   "name": "ws-phone-stt",
   "version": "1.0.0",
   "main": "index.js",
-  "repository": "TBD",
-  "author": "Brian O'Donovan <benfoxall@gmail.com>",
+  "repository": "git@github.com:bodonova/phone-stt.git",
+  "author": "Brian O'Donovan <brian_odonovan@ie.ibm.com>",
   "license": "MIT",
   "dependencies": {
     "body-parser": "^1.15.2",
