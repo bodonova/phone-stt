@@ -86,7 +86,7 @@ app.post('/event', bodyParser.json(), (req, res) => {
 })
 
 var n = stt_credentials.url.indexOf('://')
-var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?watson-token='
+var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=-1&watson-token='
 console.log('Base STT WS url', stt_ws_url)
 
 var data_notified = false
@@ -136,8 +136,12 @@ ws_phone.on('connection', ws => {
           } else {
             // console.log('STT transcription:', json)
             transcript = json.results[0].alternatives[0].transcript
-            send_to_tts = 'Watson heard: '+transcript
-            console.log('Saying', send_to_tts)
+            if (json.results[0].final) {
+              send_to_tts = 'Watson heard: '+transcript
+              console.log('Saying', send_to_tts)
+            } else {
+              console.log('Ignore interim result', transcript)
+            }
           }
         } catch (e) {
           console.log('This STT response is not a valid JSON: ', message);
