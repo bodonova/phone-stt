@@ -42,6 +42,7 @@ var stt_auth = watson.authorization(stt_credentials);
 
 // const model = 'fr-FR_BroadbandModel';
 const model = 'en-US_NarrowbandModel';
+// const model = 'en-US_BroadandModel';
 
 app.use(express.static('static'))
 app.enable('trust proxy')
@@ -89,14 +90,14 @@ var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?watson-to
 console.log('Base STT WS url', stt_ws_url)
 
 var data_notified = false
+var stt_connected = false;
+var stt_ws = null;
+
 
 ws_phone.on('connection', ws => {
   console.log('WebSocket connected')
   const url = ws.upgradeReq.url
   console.log('url:', url)
-
-  var stt_connected = false;
-  var stt_ws = null;
 
   stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
     if (error) {
@@ -107,14 +108,39 @@ ws_phone.on('connection', ws => {
     this_stt_ws_url = stt_ws_url+response+'&model='+model
     console.log('STT WS url:', stt_ws_url)
     stt_ws = new WebSocket(this_stt_ws_url);
-    stt_connected  = true;
+    
+    stt_ws.on('open', () => {
+      console.log('STT connection opened')
+      stt_connected  = true;
+      audio_json = {
+        'action': 'start',
+        'content-type': 'audio/l16;rate=16000',
+        'interim_results': true,
+        'continuous': true,
+        'word_confidence': true,
+        'timestamps': true,
+        'max_alternatives': 3
+      };
+      stt_ws.send(JSON.stringify(audio_json))
+    });
     stt_ws.on('message', message => {
-        console.log('Message from STT', message)
+        // console.log('Message from STT', message)
         try {
-          var json = JSON.parse(message.data);
-          console.log("JSON from STT:", json);
+          var json = JSON.parse(message);
+          // console.log("JSON from STT:", json);
+          if (json.error) {
+            console.error(json.error);
+            return;
+          } else if (json.state === 'listening') {
+            console.log('Watson is listening to you')
+          } else {
+            // console.log('STT transcription:', json)
+            transcript = json.results[0].alternatives[0].transcript
+            send_to_tts = 'Watson heard: '+transcript
+            console.log('Saying', send_to_tts)
+          }
         } catch (e) {
-          console.log('This STT response is not a valid JSON: ', messageß);
+          console.log('This STT response is not a valid JSON: ', message);
           return;
         }
     });
@@ -124,28 +150,22 @@ ws_phone.on('connection', ws => {
   ws.on('message', data => {
     // TODO Change this to issue messages based on time
     // if ((msg_count%200)==0) {
-    if (true) {
-        console.log('message received on WebSocket', data)
-      // console.log(typeof data)
-      console.log('data.length', data.length)
-      data_notified = true
-    }
+    // if (true) {
+    //   console.log(data.length, 'byte message received on WebSocket', data)
+    // }
     msg_count += 1;
 
     if (stt_connected) {
-      console.log('Sending received audio to STT')
+      // console.log('Sending received audio to STT')
       stt_ws.send(data)
     } else {
-      console.log('Ignore this audio because STT is not yet connected')
+      // console.log('Ignore this audio because STT is not yet connected')
     }
   })
 
   ws.on('close', () => {
     console.log('WebSocket closing')
-    if (stt_ws)
-      stt_ws.close()
   })
-
 
 })
 
