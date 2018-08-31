@@ -38,11 +38,20 @@ var stt_credentials = {
   password: vcapServices.speech_to_text[0].credentials.password
 };
 var stt_auth = watson.authorization(stt_credentials);
+var tts_credentials = {
+  version: 'v1',
+  url: vcapServices.text_to_speech[0].credentials.url,
+  username: vcapServices.text_to_speech[0].credentials.username,
+  password: vcapServices.text_to_speech[0].credentials.password
+};
+var tts_auth = watson.authorization(tts_credentials);
 
 
 // const model = 'fr-FR_BroadbandModel';
 const model = 'en-US_NarrowbandModel';
 // const model = 'en-US_BroadandModel';
+const my_voice = 'en-US_LisaVoice';
+
 
 app.use(express.static('static'))
 app.enable('trust proxy')
@@ -86,12 +95,18 @@ app.post('/event', bodyParser.json(), (req, res) => {
 })
 
 var n = stt_credentials.url.indexOf('://')
-var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=-1&watson-token='
+// TODO figure out why we see timeout even when set to -1
+//var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=-1&watson-token='
+var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=20&watson-token='
 console.log('Base STT WS url', stt_ws_url)
+n = tts_credentials.url.indexOf('://')
+var tts_ws_url = 'wss'+tts_credentials.url.substring(n)+'/v1/synthesize&voice='+my_voice+'&watson-token='
+console.log('Base TTS WS url', tts_ws_url)
 
-var data_notified = false
 var stt_connected = false;
 var stt_ws = null;
+var tts_connected = false;
+var tts_ws = null;
 
 
 ws_phone.on('connection', ws => {
@@ -129,7 +144,11 @@ ws_phone.on('connection', ws => {
           var json = JSON.parse(message);
           // console.log("JSON from STT:", json);
           if (json.error) {
-            console.error(json.error);
+            console.error('STT Error:',json.error);
+            stt_connected = false
+            try {
+              ws.close(); // end the call
+            } catch (e) {}
             return;
           } else if (json.state === 'listening') {
             console.log('Watson is listening to you')
@@ -139,6 +158,13 @@ ws_phone.on('connection', ws => {
             if (json.results[0].final) {
               send_to_tts = 'Watson heard: '+transcript
               console.log('Saying', send_to_tts)
+              if (tts_connected) {
+                var message = {
+                  text: send_to_tts,
+                  accept: '*/*'
+                };
+                //tts_ws.send(JSON.stringify(message));
+              }
             } else {
               console.log('Ignore interim result', transcript)
             }
@@ -150,15 +176,27 @@ ws_phone.on('connection', ws => {
     });
   });
 
-  var msg_count = 0;
-  ws.on('message', data => {
-    // TODO Change this to issue messages based on time
-    // if ((msg_count%200)==0) {
-    // if (true) {
-    //   console.log(data.length, 'byte message received on WebSocket', data)
-    // }
-    msg_count += 1;
+  tts_auth.getToken({url: tts_credentials.url}, (error, response) => {
+    if (error) {
+      console.log(error)
+      reject(error)
+    }
+    console.log("TTS token", response)
+    this_tts_ws_url = tts_ws_url+response
+    console.log('TTS WS url:', tts_ws_url)
+    // tts_ws = new WebSocket(this_tts_ws_url);
+    
+    // tts_ws.on('open', () => {
+    //   console.log('TTS connection opened')
+    //   tts_connected  = true;
+    // });
+  //   tts_ws.on('message', message => {
+  //       console.log('Message from TTS', message)
+  //       //ws_phone.send(message);
+  //   });
+  });
 
+  ws.on('message', data => {
     if (stt_connected) {
       // console.log('Sending received audio to STT')
       stt_ws.send(data)
@@ -168,7 +206,25 @@ ws_phone.on('connection', ws => {
   })
 
   ws.on('close', () => {
-    console.log('WebSocket closing')
+    stt_connected = false
+    tts_connected = false
+    console.log('Phone WebSocket closing')
+    try {
+      if (stt_ws) {
+        stt_ws.close();
+        console.log('Closed STT websocket');
+      }
+    } catch (e) {
+      console.log('Unable to close STT websocket - it must be closed already');
+    }
+    try {
+      if (tts_ws) {
+        tts_ws.close();
+        console.log('Closed TTS websocket');
+      }
+    } catch (e) {
+      console.log('Unable to close TTS websocket - it must be closed already');
+    }
   })
 
 })
