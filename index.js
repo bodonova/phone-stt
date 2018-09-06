@@ -52,6 +52,21 @@ const model = 'en-US_NarrowbandModel';
 // const model = 'en-US_BroadandModel';
 const my_voice = 'en-US_LisaVoice';
 
+var stt_connected = false;
+var stt_ws = null;
+var tts_connected = false;
+var tts_ws = null;
+
+
+var n = stt_credentials.url.indexOf('://')
+// TODO figure out why we see timeout even when set to -1
+//var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=-1&watson-token='
+var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=20&watson-token='
+console.log('Base STT WS url', stt_ws_url)
+n = tts_credentials.url.indexOf('://')
+var tts_ws_url = 'wss'+tts_credentials.url.substring(n)+'/v1/synthesize?voice='+my_voice+'&watson-token='
+console.log('Base TTS WS url', tts_ws_url)
+
 
 app.use(express.static('static'))
 app.enable('trust proxy')
@@ -93,21 +108,6 @@ app.post('/event', bodyParser.json(), (req, res) => {
   console.log('POST to event>', req.body)
   res.sendStatus(200)
 })
-
-var n = stt_credentials.url.indexOf('://')
-// TODO figure out why we see timeout even when set to -1
-//var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=-1&watson-token='
-var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?inactivity_timeout=20&watson-token='
-console.log('Base STT WS url', stt_ws_url)
-n = tts_credentials.url.indexOf('://')
-var tts_ws_url = 'wss'+tts_credentials.url.substring(n)+'/v1/synthesize&voice='+my_voice+'&watson-token='
-console.log('Base TTS WS url', tts_ws_url)
-
-var stt_connected = false;
-var stt_ws = null;
-var tts_connected = false;
-var tts_ws = null;
-
 
 ws_phone.on('connection', ws => {
   console.log('WebSocket connected')
@@ -163,7 +163,8 @@ ws_phone.on('connection', ws => {
                   text: send_to_tts,
                   accept: '*/*'
                 };
-                //tts_ws.send(JSON.stringify(message));
+                console.log('Send to TTS', JSON.stringify(message));
+                // tts_ws.send(JSON.stringify(message));
               }
             } else {
               console.log('Ignore interim result', transcript)
@@ -184,16 +185,40 @@ ws_phone.on('connection', ws => {
     console.log("TTS token", response)
     this_tts_ws_url = tts_ws_url+response
     console.log('TTS WS url:', tts_ws_url)
-    // tts_ws = new WebSocket(this_tts_ws_url);
+    try {
+      tts_ws = new WebSocket(this_tts_ws_url);
+      console.log('Opened socket to TTS service')
+    } catch (e) {
+      console.error('Error connecting to TTS:', e)
+      tts_ws = null;
+      ws.close();
+    }
     
-    // tts_ws.on('open', () => {
-    //   console.log('TTS connection opened')
-    //   tts_connected  = true;
-    // });
-  //   tts_ws.on('message', message => {
-  //       console.log('Message from TTS', message)
-  //       //ws_phone.send(message);
-  //   });
+    tts_ws.on('open', () => {
+      console.log('TTS connection opened')
+      tts_connected  = true;
+    });
+
+    tts_ws.on('message', message => {
+        console.log('Message from TTS', message)
+        try {
+          var json = JSON.parse(message);
+          // console.log("JSON from TTS:", json);
+          if (json.error) {
+            console.error('TTS Error:',json.error);
+            tts_connected = false
+            try {
+              ws.close(); // end the call
+            } catch (e) {}
+            return;
+          } 
+        } catch (e) {
+          console.log('This TTS response is not a valid JSON so send back to phone: ', message);
+          ws_phone.send(message);
+          return;
+        }
+       
+    });
   });
 
   ws.on('message', data => {
@@ -231,6 +256,6 @@ ws_phone.on('connection', ws => {
 
 server.on('request', app)
 
-server.listen(process.env.PORT || 3000, () => {
+server.listen(process.env.PORT || 3001, () => {
   console.log('Listening on ' + server.address().port)
 })
