@@ -57,6 +57,34 @@ var stt_ws = null;
 var tts_connected = false;
 var tts_ws = null;
 
+// The buffer for the audio data 
+const talkBackBuffer = Buffer.alloc(640);
+var buf_pos = 0;
+var talkingBack = false;
+function send_bytes (buf, socket) {
+  if (talkingBack) {
+    setTimeout(send_bytes, 100, buf, socket);
+    conole.log(buf.length, "more bytes queued for output")
+  } else {
+    talkingBack = true;
+    var consumedBytes = 0;
+    var batch_count = 0;
+    while (consumedBytes < buf.length) {
+      talkBackBuffer[buf_pos] = buf[consumedBytes];
+      consumedBytes++;
+      buf_pos++;
+      if (buf_pos == talkBackBuffer.length) {
+        // console.log ('A batch of Audio data sent back to phone');
+        socket.send(talkBackBuffer);
+        buf_pos = 0;
+        batch_count++;
+      }
+    }
+    console.log(batch_count,' batches ofresponse audio with', buf_pos, 'bytes left');
+    talkingBack = false;
+  }
+
+}
 
 var n = stt_credentials.url.indexOf('://')
 // TODO figure out why we see timeout even when set to -1
@@ -80,14 +108,10 @@ app.get('/answer', (req, res) => {
     req.headers.host + '/server/' + conn_id
   console.log('ws_url:', ws_url)
 
-  old_text = 'Enter that code on your screen now'
-  long_text = 'Welcome to the Watson phone based speech recognition demo. Say what you like and when you pause Watson will tell you what it heard'
-  short_text = 'speak to see if Watson understands you'
-
   res.send([
     {
       action: 'talk',
-      text: short_text
+      text: 'Speack to Watson baby'
     },
     {
       'action': 'connect',
@@ -110,7 +134,7 @@ app.post('/event', bodyParser.json(), (req, res) => {
 })
 
 ws_phone.on('connection', ws => {
-  console.log('WebSocket connected')
+  console.log('WebSocket connected at '+(new Date).toISOString())
   const url = ws.upgradeReq.url
   console.log('url:', url)
 
@@ -125,7 +149,7 @@ ws_phone.on('connection', ws => {
     stt_ws = new WebSocket(this_stt_ws_url);
     
     stt_ws.on('open', () => {
-      console.log('STT connection opened')
+      console.log('STT connection opened at '+(new Date).toISOString())
       stt_connected  = true;
       audio_json = {
         'action': 'start',
@@ -144,7 +168,7 @@ ws_phone.on('connection', ws => {
           var json = JSON.parse(message);
           // console.log("JSON from STT:", json);
           if (json.error) {
-            console.error('STT Error:',json.error);
+            console.error((new Date).toISOString()+' STT Error:',json.error);
             stt_connected = false
             try {
               ws.close(); // end the call
@@ -161,17 +185,17 @@ ws_phone.on('connection', ws => {
               if (tts_connected) {
                 var message = {
                   text: send_to_tts,
-                  accept: '*/*'
+                  accept: 'audio/l16;rate=16000' // 'audio/wav'
                 };
-                console.log('Send to TTS', JSON.stringify(message));
-                // tts_ws.send(JSON.stringify(message));
+                console.log((new Date).toISOString()+' send to TTS', JSON.stringify(message));
+                tts_ws.send(JSON.stringify(message));
               }
             } else {
               console.log('Ignore interim result', transcript)
             }
           }
         } catch (e) {
-          console.log('This STT response is not a valid JSON: ', message);
+          console.log((new Date).toISOString()+' this STT response is not a valid JSON: ', message);
           return;
         }
     });
@@ -187,7 +211,7 @@ ws_phone.on('connection', ws => {
     console.log('TTS WS url:', tts_ws_url)
     try {
       tts_ws = new WebSocket(this_tts_ws_url);
-      console.log('Opened socket to TTS service')
+      console.log('Opened socket to TTS service at '+(new Date).toISOString())
     } catch (e) {
       console.error('Error connecting to TTS:', e)
       tts_ws = null;
@@ -195,12 +219,12 @@ ws_phone.on('connection', ws => {
     }
     
     tts_ws.on('open', () => {
-      console.log('TTS connection opened')
+      console.log('TTS connection opened at '+(new Date).toISOString())
       tts_connected  = true;
     });
 
     tts_ws.on('message', message => {
-        console.log('Message from TTS', message)
+        console.log((new Date).toISOString()+' message from TTS', message)
         try {
           var json = JSON.parse(message);
           // console.log("JSON from TTS:", json);
@@ -213,8 +237,9 @@ ws_phone.on('connection', ws => {
             return;
           } 
         } catch (e) {
-          console.log('This TTS response is not a valid JSON so send back to phone: ', message);
-          ws_phone.send(message);
+          console.log('Send TTS', message.length, ' length response back to phone: ', message);
+          send_bytes(message, ws);
+          console.log('Finished sending byted with', buf_pos, 'left to send');
           return;
         }
        
@@ -233,11 +258,11 @@ ws_phone.on('connection', ws => {
   ws.on('close', () => {
     stt_connected = false
     tts_connected = false
-    console.log('Phone WebSocket closing')
+    console.log((new Date).toISOString()+' phone WebSocket closing')
     try {
       if (stt_ws) {
         stt_ws.close();
-        console.log('Closed STT websocket');
+        console.log('Closed STT websocket at '+(new Date).toISOString());
       }
     } catch (e) {
       console.log('Unable to close STT websocket - it must be closed already');
@@ -245,7 +270,7 @@ ws_phone.on('connection', ws => {
     try {
       if (tts_ws) {
         tts_ws.close();
-        console.log('Closed TTS websocket');
+        console.log('Closed TTS websocket at '+(new Date).toISOString());
       }
     } catch (e) {
       console.log('Unable to close TTS websocket - it must be closed already');
