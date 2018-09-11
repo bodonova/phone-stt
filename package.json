@@ -9,8 +9,7 @@
     "body-parser": "^1.15.2",
     "express": "^4.14.0",
     "ws": "^1.1.1",
-    "watson-developer-cloud": "^2.31.1",
-    "websocket-stream": "^5.1.2"
+    "watson-developer-cloud": "^2.31.1"
   },
   "scripts": {
     "start": "node index.js"

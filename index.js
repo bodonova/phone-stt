@@ -10,7 +10,8 @@ const TextToSpeechV1 = require('watson-developer-cloud/text-to-speech/v1');
 const WebSocket = require('ws');
 const WebSocketServer = require('ws').Server
 const ws_phone = new WebSocketServer({ server: server })
-const websocketStream = require('websocket-stream');
+
+var audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
 
 
 // When running on Bluemix we will get config data from VCAP_SERVICES
@@ -64,41 +65,21 @@ var n = stt_credentials.url.indexOf('://')
 var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?&watson-token='
 console.log('Base STT WS url', stt_ws_url)
 
-// Read a file and stream it to a socket
-function unused_streamFile (file_name, socket) {
-  const buf_size = 640;
-  const OutBuf = new Buffer(buf_size)
-  fs.readFile(file_name, function (err, data) {
-    if (err) throw err;
-    console.log(data);
-    if (data.length < 640) {
-      // if it is short enough just write it
-      socket.send(data);
-    } else {
-      // If it is longer send it out in chunks
-      var curr_in_byte = 0;
-      var curr_out_byte = 0;
-      while (curr_in_byte < data.length) {
-        OutBuf[curr_out_byte] = data[curr_in_byte];
-        curr_in_byte++;
-        curr_out_byte++;
-        if (buf_size == curr_out_byte) {
-          // console.log('Sending bytes up to', curr_in_byte);
-          if (socket) socket.send(OutBuf);
-          curr_out_byte = 0;
-        }
-      }
-      console.log('Loop ended with', curr_in_byte,'send . Send remaining bytes', curr_out_byte);
-      while (curr_out_byte < OutBuf.length) {
-        OutBuf[curr_out_byte] = 0;
-        curr_out_byte++;
-      }
-      if (socket) socket.send(OutBuf);
-    }
+// Send a strng to TTS and stream the response to the phone socket
+function tts_stream (text, socket) {
+  console.log('Calling TTS to Say:', text)
+  var synthesizeParams = {
+    text: text,
+    accept: audio_format+';channels=1;endianness=little-endian',
+    voice: 'en-US_AllisonVoice'
+  };
+
+  const audio_req = textToSpeech.synthesize(synthesizeParams);
+  audio_req.on('data', (data) => {
+    console.log(data.length, 'length data received', data);
+    socket.send(data);
   });
 }
-
-// streamFile('greeting.wav', null)
 
 app.use(express.static('static'))
 app.enable('trust proxy')
@@ -116,7 +97,7 @@ app.get('/answer', (req, res) => {
   res.send([
     {
       action: 'talk',
-      text: 'Speak to Watson'
+      text: 'Please give Watson a moment to prepare'
     },
     {
       'action': 'connect',
@@ -124,7 +105,7 @@ app.get('/answer', (req, res) => {
         {
           'type': 'websocket',
           'uri': ws_url,
-          'content-type': 'audio/l16;rate=16000',
+          'content-type': audio_format,
           'headers': {}
         }
       ]
@@ -158,7 +139,7 @@ ws_phone.on('connection', ws => {
       stt_connected  = true;
       audio_json = {
         'action': 'start',
-        'content-type': 'audio/l16;rate=16000',
+        'content-type': audio_format,
         'interim_results': true,
         'inactivity_timeout': -1, 
         // 'continuous': true,
@@ -168,6 +149,7 @@ ws_phone.on('connection', ws => {
       };
       stt_ws.send(JSON.stringify(audio_json))
     });
+
     stt_ws.on('message', message => {
         console.log('Message from STT', message)
         try {
@@ -181,71 +163,38 @@ ws_phone.on('connection', ws => {
             } catch (e) {}
             return;
           } else if (json.state === 'listening') {
-            console.log('Watson is listening to you')
+            var greeting = 'Mr Watson is listening to you so go ahead and speak';
+            console.log('Greeting:', greeting);
+            tts_stream (greeting, ws);
           } else {
             // console.log('STT transcription:', json)
             transcript = json.results[0].alternatives[0].transcript
             if (json.results[0].final) {
               send_to_tts = 'Watson heard: '+transcript
-              console.log('Saying', send_to_tts)
-              var synthesizeParams = {
-                text: send_to_tts,
-                // accept: 'audio/wav',
-                accept: 'audio/l16;rate=16000',
-                voice: 'en-US_AllisonVoice'
-              };
-              
-              // Pipe the synthesized text to a file.
-              try  {
-                console.log('Got', message.length, 'bytes of audio from TTS');
-                var in_buf_pos = 0;
-                var out_buf_pos = 0;
-                var response_buf = Buffer.alloc(640);
-                // const out_buf_size = 640;
-                // var response_buf = new Buffer(out_buf_size);
-                while (in_buf_pos < message.length) {
-                  response_buf[out_buf_pos] = message[in_buf_pos];
-                  out_buf_pos++;
-                  in_buf_pos++;
-                  if (response_buf.length == out_buf_pos) {
-                    ws.send(response_buf);
-                    out_buf_pos = 0;
-                  }
-                }
-                // send the last part of the buffer
-                console.log('Got to end of loop with', out_buf_pos, 'bytes left');
-                while (out_buf_pos < response_buf.length) {
-                  response_buf[out_buf_pos] = 0;
-                  out_buf_pos++;
-                }
-                ws.send(response_buf);
-              } catch (e) {
-                console.error("Error calling TTS", e);
-              }
-      ;
-          } else {
-              console.log('Ignore interim result', transcript)
+              tts_stream(send_to_tts, ws);
+            } else {
+                console.log('Ignore interim result', transcript)
             }
           }
-        } catch (e) {
-          console.log((new Date).toISOString()+' this STT response is not a valid JSON: ', message);
-          return;
-        }
+       } catch (e) {
+          console.log('Error parsing STT response', e)
+      }
     });
+
   });
 
-  ws.on('open',  () => {
-   // streamFile('greeting.wav', ws);
-    const src = fs.createReadStream('greeting.wav');
-    src.pipe(ws);
-  });
+  // ws.on('open',  () => {
+  //  // streamFile('greeting.wav', ws);
+  //   const src = fs.createReadStream('greeting.wav');
+  //   src.pipe(ws);
+  // });
 
   ws.on('message', data => {
     if (stt_connected) {
-      // console.log('Sending received audio to STT')
-      stt_ws.send(data)
+      //console.log('Sending', data.length,' of received audio to STT');
+      stt_ws.send(data);
     } else {
-      // console.log('Ignore this audio because STT is not yet connected')
+      //console.log('Ignore this audio because STT is not yet connected', data.length);
     }
   });
 
