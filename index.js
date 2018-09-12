@@ -11,8 +11,8 @@ const WebSocket = require('ws');
 const WebSocketServer = require('ws').Server
 const ws_phone = new WebSocketServer({ server: server })
 
-var audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
-
+const audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
+const BUF_SIZE = 320; // a 20msec chunk - would be 540 for 16KHz
 
 // When running on Bluemix we will get config data from VCAP_SERVICES
 // and a user variable named VCAP_SERVICES
@@ -75,9 +75,38 @@ function tts_stream (text, socket) {
   };
 
   const audio_req = textToSpeech.synthesize(synthesizeParams);
+  var buf_pos = 0;
+  // var buf_array = [];
+  // buf_array.append(Buffer.alloc(BUF_SIZE));
+  var buf = Buffer.alloc(BUF_SIZE); 
+  var data_ended = false;
+  console.log('TTS response coming');
+  audio_req.on('end', () => {
+    console.log('You have all the data you are going to get');
+    data_ended = true;
+  });
   audio_req.on('data', (data) => {
-    console.log(data.length, 'length data received', data);
-    socket.send(data);
+    console.log(data);
+    var in_buf_pos = 0;
+    var end_pos = buf_pos + data.length;
+    if (buf.length <= end_pos) {
+      console.log('New data would put us at or beyond buffer ar', end_pos);
+      while (buf_pos < buf.length) {
+        buf[buf_pos] = data[in_buf_pos]
+        buf_pos++;
+        in_buf_pos++;
+      }
+      buf_pos = 0;
+      in_buf_pos = 0;
+      socket.send(buf);
+    } else {
+      while (buf_pos < end_pos) {
+        buf[buf_pos] = data[in_buf_pos]
+        buf_pos++;
+        in_buf_pos++;
+      }
+      in_buf_pos = 0;
+    }
   });
 }
 
@@ -182,12 +211,6 @@ ws_phone.on('connection', ws => {
     });
 
   });
-
-  // ws.on('open',  () => {
-  //  // streamFile('greeting.wav', ws);
-  //   const src = fs.createReadStream('greeting.wav');
-  //   src.pipe(ws);
-  // });
 
   ws.on('message', data => {
     if (stt_connected) {
