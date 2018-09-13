@@ -11,8 +11,16 @@ const WebSocket = require('ws');
 const WebSocketServer = require('ws').Server
 const ws_phone = new WebSocketServer({ server: server })
 
+
+// const model = 'fr-FR_BroadbandModel';
+const model = 'en-US_NarrowbandModel'; // for STT
+// const model = 'en-US_BroadandModel';
+const my_voice = 'en-US_LisaVoice'; // for TTS
+
 const audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
-const BUF_SIZE = 320; // a 20msec chunk - would be 540 for 16KHz
+const BUF_SIZE = 320; // a 20msec chunk - would be 640 for 16KHz
+// const audio_format =  'audio/l16;rate=16000' 
+// const BUF_SIZE = 6400; // a 20msec chunk - would be 320 for 8KHz
 
 // When running on Bluemix we will get config data from VCAP_SERVICES
 // and a user variable named VCAP_SERVICES
@@ -53,17 +61,36 @@ var textToSpeech = new TextToSpeechV1({
   password: tts_credentials.password
 });
 
-// const model = 'fr-FR_BroadbandModel';
-const model = 'en-US_NarrowbandModel';
-// const model = 'en-US_BroadandModel';
-const my_voice = 'en-US_LisaVoice';
-
 var stt_connected = false;
 var stt_ws = null;
 
 var n = stt_credentials.url.indexOf('://')
 var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?&watson-token='
 console.log('Base STT WS url', stt_ws_url)
+
+var curr_send_buff = 0;
+var curr_fill_buff = 0;
+var data_ended = false;
+var buf_array = [];
+
+// Send audio to the websocket (if we have a full buffer)
+function stream_data_if_ready(socket) {
+  if (data_ended && (curr_send_buff == curr_fill_buff)) {
+    console.log('Closing send loop since all audio sent'+(new Date).toISOString());
+    // send last buffer
+    socket.send(buf_array[curr_send_buff]);
+  } else {
+    setTimeout(stream_data_if_ready, 20, socket);
+  }
+
+  if (curr_fill_buff > curr_send_buff) {
+    console.log('Sending data from buffer', curr_send_buff, 'at '+(new Date).toISOString());
+    socket.send(buf_array[curr_send_buff]);
+    curr_send_buff++;
+  } else {
+    // console.log('No full buffer to send at'+(new Date).toISOString());
+;  }
+}
 
 // Send a strng to TTS and stream the response to the phone socket
 function tts_stream (text, socket) {
@@ -73,45 +100,56 @@ function tts_stream (text, socket) {
     accept: audio_format+';channels=1;endianness=little-endian',
     voice: 'en-US_AllisonVoice'
   };
-
   const audio_req = textToSpeech.synthesize(synthesizeParams);
+  // console.log('TTS response coming');
+
   var buf_pos = 0;
-  // var buf_array = [];
-  // buf_array.append(Buffer.alloc(BUF_SIZE));
-  var buf = Buffer.alloc(BUF_SIZE); 
-  var data_ended = false;
-  console.log('TTS response coming');
-  audio_req.on('end', () => {
-    console.log('You have all the data you are going to get');
-    data_ended = true;
-  });
+  curr_send_buff = 0;
+  curr_fill_buff = 0;
+  data_ended = false;
+  buf_array = [];
+  buf_array.push(Buffer.alloc(BUF_SIZE));
+  stream_data_if_ready(socket);
+
   audio_req.on('data', (data) => {
     console.log(data);
     var in_buf_pos = 0;
     var end_pos = buf_pos + data.length;
-    if (buf.length <= end_pos) {
-      console.log('New data would put us at or beyond buffer ar', end_pos);
-      while (buf_pos < buf.length) {
-        buf[buf_pos] = data[in_buf_pos]
+    console.log('curr_fill_buff', curr_fill_buff, 'data.length', data.length, 'buf_pos', buf_pos, 'in_buf_pos', in_buf_pos);
+    if (BUF_SIZE <= end_pos) {
+      // console.log('New data would put us at or beyond buffer ar', end_pos);
+      while (buf_pos < BUF_SIZE) {
+        buf_array[curr_fill_buff][buf_pos] = data[in_buf_pos];
         buf_pos++;
         in_buf_pos++;
       }
+      //socket.send(buf_array[curr_fill_buff]);
+
+      // Now fill the next buffer
+      buf_array.push(Buffer.alloc(BUF_SIZE));
+      curr_fill_buff++;
+      end_pos -= BUF_SIZE;
       buf_pos = 0;
-      in_buf_pos = 0;
-      socket.send(buf);
+      while (in_buf_pos < end_pos) {
+        buf_array[curr_fill_buff][buf_pos] = data[in_buf_pos];
+        in_buf_pos++;
+        buf_pos++;
+      }
     } else {
       while (buf_pos < end_pos) {
-        buf[buf_pos] = data[in_buf_pos]
+        buf_array[curr_fill_buff][buf_pos] = data[in_buf_pos];
         buf_pos++;
         in_buf_pos++;
       }
       in_buf_pos = 0;
     }
   });
-}
 
-app.use(express.static('static'))
-app.enable('trust proxy')
+  audio_req.on('end', () => {
+    console.log('You have all the data you are going to get');
+    data_ended = true;
+  });
+}
 
 app.get('/answer', (req, res) => {
   console.log('GET on /answer')
@@ -151,7 +189,10 @@ app.post('/event', bodyParser.json(), (req, res) => {
 ws_phone.on('connection', ws => {
   console.log('WebSocket connected at '+(new Date).toISOString())
   const url = ws.upgradeReq.url
-  console.log('url:', url)
+  console.log('url:', url);
+
+  // Play greeting to verify audio will sream OK
+
 
   stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
     if (error) {
