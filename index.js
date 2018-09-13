@@ -15,7 +15,8 @@ const ws_phone = new WebSocketServer({ server: server })
 // const model = 'fr-FR_BroadbandModel';
 const model = 'en-US_NarrowbandModel'; // for STT
 // const model = 'en-US_BroadandModel';
-const my_voice = 'en-US_LisaVoice'; // for TTS
+//const my_voice = 'en-US_LisaVoice'; // for TTS
+const my_voice = 'en-GB_KateVoice'; // for TTS
 
 const audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
 const BUF_SIZE = 320; // a 20msec chunk - would be 640 for 16KHz
@@ -79,7 +80,7 @@ function tts_stream (text, socket) {
   const audio_req = textToSpeech.synthesize(synthesizeParams);
 
   // TODO Open A Binary file
-  const temp_file_name = Date.now() + 'wav'
+  const temp_file_name = __dirname + '/' + Date.now() + '.wav'
   console.log('TTS response being saved in', temp_file_name);
   const writeStream = fs.createWriteStream(temp_file_name);
 
@@ -90,14 +91,18 @@ function tts_stream (text, socket) {
 
   audio_req.on('end', () => {
     console.log('Audio recieved so play it back');
-    writeStream.end();  
-    // stream the file to the phone socket
-    const rStream = fs.createReadStream(temp_file_name, { highWaterMark: 1*320 })
-    rStream.on('data', (chunk) => {
-      socket.send(chunk)
-    })  
-    // deelete the temporary file
-    fs.unlinkSync(temp_file_name);
+    try {
+      writeStream.end();  
+      // stream the file to the phone socket
+      const rStream = fs.createReadStream(temp_file_name, { highWaterMark: 1*320 })
+      rStream.on('data', (chunk) => {
+        socket.send(chunk)
+      })  
+      // deelete the temporary file
+      fs.unlinkSync(temp_file_name);  
+    } catch (e) {
+      console.error('Failed to play TTS response', e);
+    }
   });
 }
 
@@ -144,7 +149,7 @@ ws_phone.on('connection', ws => {
   // Play greeting to verify audio will sream OK
   // code from https://github.com/Nexmo/nexmo-node/issues/124
   const testFilePath = __dirname + '/greeting.wav';
-  console.log('Playing', testFilePath);
+  console.log('Playing greeting from ', testFilePath);
 	// highWaterMark is set to the size of messages that the websocket receives from Nexmo
 	const rStream = fs.createReadStream(testFilePath, { highWaterMark: 1*320 })
 	rStream.on('data', (chunk) => {
@@ -194,8 +199,9 @@ ws_phone.on('connection', ws => {
           } else {
             // console.log('STT transcription:', json)
             transcript = json.results[0].alternatives[0].transcript
-            if (json.results[0].final) {
-              send_to_tts = 'Watson heard: '+transcript.replace('%HESITATION', '')
+            transcript = transcript.replace('%HESITATION', '')
+            if (json.results[0].final && ('' != transcript)) {
+              send_to_tts = 'Watson heard: '+transcript
               tts_stream(send_to_tts, ws);
             } else {
                 console.log('Ignore interim result', transcript)
