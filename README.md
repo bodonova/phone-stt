@@ -1,17 +1,15 @@
 # ws-phone
 
-Receive voice calls in your browser.
+Connect a phone call via Nexmo to IBM Watson Speech To Text(STT) and Text To SPeech (TTS)
 
-![](static/screenshot.png)
-
-_note: this requires [getUserMedia/Stream API](http://caniuse.com/#feat=stream) (ie. Not Safari)_
+This is a simple test for how well the STT is working from your phone call. Everytime you say something, as soon s you pause the STT will try to recognize wht you said and then speak it back to you via TTS.
 
 ## Development/Deployment
 
 ### Requirements
 
 * [node](https://nodejs.org/en/) & [yarn](https://yarnpkg.com)
-* a publicly available host to run your application (heroku works pretty well)
+* a publicly available host to run your application (IBM Cloud works pretty well)
 * a Nexmo number and associated app with the following endpoints:
   * `answer`: https://YOUR_URL/answer
   * `event`: https://YOUR_URL/event
@@ -31,10 +29,6 @@ Visit `http://your-url:3000` to see your app.
 
 ## How this works
 
-This makes use of a Nexmo feature of connecting a voice call to a [WebSocket endpoint](https://docs.nexmo.com/voice/voice-api/websockets).  The node server listens out for incoming websocket connections and proxies them on to the relevant browser session.
+This makes use of a Nexmo feature of connecting a voice call to a [WebSocket endpoint](https://docs.nexmo.com/voice/voice-api/websockets).  The node server listens out for incoming websocket connections and connects them to IBM Watson STT and TTS.
 
-Messages contain raw audio data at 16k split into 0.2s chunks.
-
-Within the browser, incoming messages are transformed by assigning the raw data to an AudioBufferSourceNode with the appropriate sample rate (16k). The browser takes care of resampling this to 44k.
-
-Microphone audio is read by feeding it into a ScriptProcessorNode - where the raw audio can be manually downsampled and emitted on the websocket every 320 samples (0.2s).
+A blog describing how this app works will shortly be published on the Watson tip and Trick blog.
