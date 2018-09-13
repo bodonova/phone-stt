@@ -68,30 +68,6 @@ var n = stt_credentials.url.indexOf('://')
 var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?&watson-token='
 console.log('Base STT WS url', stt_ws_url)
 
-var curr_send_buff = 0;
-var curr_fill_buff = 0;
-var data_ended = false;
-var buf_array = [];
-
-// Send audio to the websocket (if we have a full buffer)
-function stream_data_if_ready(socket) {
-  if (data_ended && (curr_send_buff == curr_fill_buff)) {
-    console.log('Closing send loop since all audio sent'+(new Date).toISOString());
-    // send last buffer
-    socket.send(buf_array[curr_send_buff]);
-  } else {
-    setTimeout(stream_data_if_ready, 20, socket);
-  }
-
-  if (curr_fill_buff > curr_send_buff) {
-    console.log('Sending data from buffer', curr_send_buff, 'at '+(new Date).toISOString());
-    socket.send(buf_array[curr_send_buff]);
-    curr_send_buff++;
-  } else {
-    // console.log('No full buffer to send at'+(new Date).toISOString());
-;  }
-}
-
 // Send a strng to TTS and stream the response to the phone socket
 function tts_stream (text, socket) {
   console.log('Calling TTS to Say:', text)
@@ -101,53 +77,27 @@ function tts_stream (text, socket) {
     voice: 'en-US_AllisonVoice'
   };
   const audio_req = textToSpeech.synthesize(synthesizeParams);
-  // console.log('TTS response coming');
 
-  var buf_pos = 0;
-  curr_send_buff = 0;
-  curr_fill_buff = 0;
-  data_ended = false;
-  buf_array = [];
-  buf_array.push(Buffer.alloc(BUF_SIZE));
-  stream_data_if_ready(socket);
+  // TODO Open A Binary file
+  const temp_file_name = Date.now() + 'wav'
+  console.log('TTS response being saved in', temp_file_name);
+  const writeStream = fs.createWriteStream(temp_file_name);
 
   audio_req.on('data', (data) => {
-    console.log(data);
-    var in_buf_pos = 0;
-    var end_pos = buf_pos + data.length;
-    console.log('curr_fill_buff', curr_fill_buff, 'data.length', data.length, 'buf_pos', buf_pos, 'in_buf_pos', in_buf_pos);
-    if (BUF_SIZE <= end_pos) {
-      // console.log('New data would put us at or beyond buffer ar', end_pos);
-      while (buf_pos < BUF_SIZE) {
-        buf_array[curr_fill_buff][buf_pos] = data[in_buf_pos];
-        buf_pos++;
-        in_buf_pos++;
-      }
-      //socket.send(buf_array[curr_fill_buff]);
-
-      // Now fill the next buffer
-      buf_array.push(Buffer.alloc(BUF_SIZE));
-      curr_fill_buff++;
-      end_pos -= BUF_SIZE;
-      buf_pos = 0;
-      while (in_buf_pos < end_pos) {
-        buf_array[curr_fill_buff][buf_pos] = data[in_buf_pos];
-        in_buf_pos++;
-        buf_pos++;
-      }
-    } else {
-      while (buf_pos < end_pos) {
-        buf_array[curr_fill_buff][buf_pos] = data[in_buf_pos];
-        buf_pos++;
-        in_buf_pos++;
-      }
-      in_buf_pos = 0;
-    }
+    // console.log(data);
+    writeStream.write(data);
   });
 
   audio_req.on('end', () => {
-    console.log('You have all the data you are going to get');
-    data_ended = true;
+    console.log('Audio recieved so play it back');
+    writeStream.end();  
+    // stream the file to the phone socket
+    const rStream = fs.createReadStream(temp_file_name, { highWaterMark: 1*320 })
+    rStream.on('data', (chunk) => {
+      socket.send(chunk)
+    })  
+    // deelete the temporary file
+    fs.unlinkSync(temp_file_name);
   });
 }
 
@@ -162,10 +112,10 @@ app.get('/answer', (req, res) => {
   console.log('ws_url:', ws_url)
 
   res.send([
-    {
-      action: 'talk',
-      text: 'Please give Watson a moment to prepare'
-    },
+    // {
+    //   action: 'talk',
+    //   text: 'Please give Watson a moment to prepare'
+    // },
     {
       'action': 'connect',
       'endpoint': [
@@ -195,7 +145,6 @@ ws_phone.on('connection', ws => {
   // code from https://github.com/Nexmo/nexmo-node/issues/124
   const testFilePath = __dirname + '/greeting.wav';
   console.log('Playing', testFilePath);
-
 	// highWaterMark is set to the size of messages that the websocket receives from Nexmo
 	const rStream = fs.createReadStream(testFilePath, { highWaterMark: 1*320 })
 	rStream.on('data', (chunk) => {
@@ -229,7 +178,7 @@ ws_phone.on('connection', ws => {
     });
 
     stt_ws.on('message', message => {
-        console.log('Message from STT', message)
+        // console.log('Message from STT', message)
         try {
           var json = JSON.parse(message);
           console.log("JSON from STT:", json);
@@ -241,14 +190,12 @@ ws_phone.on('connection', ws => {
             } catch (e) {}
             return;
           } else if (json.state === 'listening') {
-            var greeting = 'Mr Watson is listening to you so go ahead and speak';
-            console.log('Greeting:', greeting);
-            tts_stream (greeting, ws);
+            console.log('STT now listening');
           } else {
             // console.log('STT transcription:', json)
             transcript = json.results[0].alternatives[0].transcript
             if (json.results[0].final) {
-              send_to_tts = 'Watson heard: '+transcript
+              send_to_tts = 'Watson heard: '+transcript.replace('%HESITATION', '')
               tts_stream(send_to_tts, ws);
             } else {
                 console.log('Ignore interim result', transcript)
