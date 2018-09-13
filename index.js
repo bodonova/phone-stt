@@ -192,7 +192,15 @@ ws_phone.on('connection', ws => {
   console.log('url:', url);
 
   // Play greeting to verify audio will sream OK
+  // code from https://github.com/Nexmo/nexmo-node/issues/124
+  const testFilePath = __dirname + '/greeting.wav';
+  console.log('Playing', testFilePath);
 
+	// highWaterMark is set to the size of messages that the websocket receives from Nexmo
+	const rStream = fs.createReadStream(testFilePath, { highWaterMark: 1*320 })
+	rStream.on('data', (chunk) => {
+		ws.send(chunk)
+	})
 
   stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
     if (error) {
