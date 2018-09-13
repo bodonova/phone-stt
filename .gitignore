@@ -1,4 +1,6 @@
 vcap-local.json
+logs.out
+package-lock.json
 # Logs
 logs
 *.log
