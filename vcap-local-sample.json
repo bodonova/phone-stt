@@ -1,0 +1,46 @@
+{
+  "VCAP_SERVICES": {
+    "speech_to_text": [
+      {
+        "credentials": {
+          "url": "https://stream.watsonplatform.net/speech-to-text/api",
+          "username": "xxx",
+          "password": "xxx"
+        },
+        "label": "speech_to_text",
+        "name": "speech-to-text-service",
+        "plan": "standard",
+        "provider": null,
+        "syslog_drain_url": null,
+        "tags": [
+          "ibm_created",
+          "ibm_dedicated_public",
+          "lite",
+          "watson"
+        ],
+        "volume_mounts": []
+      }
+    ],
+    "text_to_speech": [
+      {
+        "credentials": {
+          "url": "https://stream.watsonplatform.net/text-to-speech/api",
+          "username": "xxx",
+          "password": "xxx"
+        },
+        "label": "text_to_speech",
+        "name": "text-to-speech-service",
+        "plan": "standard",
+        "provider": null,
+        "syslog_drain_url": null,
+        "tags": [
+          "ibm_created",
+          "ibm_dedicated_public",
+          "lite",
+          "watson"
+        ],
+        "volume_mounts": []
+      }
+    ]
+  }
+}
