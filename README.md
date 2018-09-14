@@ -1,12 +1,10 @@
 # ws-phone
 
-Connect a phone call via Nexmo to IBM Watson Speech To Text(STT) and Text To SPeech (TTS)
+Connect a phone call via Nexmo to IBM Watson Speech To Text(STT) and Text To Speech (TTS)
 
 This is a simple test for how well the STT is working from your phone call. Everytime you say something, as soon s you pause the STT will try to recognize wht you said and then speak it back to you via TTS.
 
-## Development/Deployment
-
-### Requirements
+## Requirements
 
 * [node](https://nodejs.org/en/) & [yarn](https://yarnpkg.com)
 * a publicly available host to run your application (IBM Cloud works pretty well)
@@ -14,7 +12,7 @@ This is a simple test for how well the STT is working from your phone call. Ever
   * `answer`: https://YOUR_URL/answer
   * `event`: https://YOUR_URL/event
 
-### Running
+## Running
 
 First install dependencies (npm would work too)
 
