@@ -30,4 +30,4 @@ node index.js
 
 This makes use of a Nexmo feature of connecting a voice call to a [WebSocket endpoint](https://docs.nexmo.com/voice/voice-api/websockets).  The node server listens out for incoming websocket connections and connects them to IBM Watson STT and TTS.
 
-Click [here](https://watson-tricks.blogspot.com/2018/09/connecting-ibm-watson-speech-services.html) to access a blog post giving details pf how this app works.
+Click [here](https://watson-tricks.blogspot.com/2018/09/connecting-ibm-watson-speech-services.html) to access a blog post giving details of how this app works.
