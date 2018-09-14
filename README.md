@@ -16,16 +16,17 @@ This is a simple test for how well the STT is working from your phone call. Ever
 
 ### Running
 
-```bash
-# Install dependencies (npm would work too)
-yarn install
+First install dependencies (npm would work too)
 
-# The number to be displayed on the page
-export INBOUND_NUMBER='+44 7575 123 456'
-node app.js
+```bash
+yarn install
 ```
 
-Visit `http://your-url:3000` to see your app.
+Then start the application
+
+```bash
+node index.js
+```
 
 ## How this works
 
