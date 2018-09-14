@@ -9,7 +9,6 @@ const watson = require('watson-developer-cloud')
 const TextToSpeechV1 = require('watson-developer-cloud/text-to-speech/v1');
 const WebSocket = require('ws');
 const WebSocketServer = require('ws').Server
-const ws_phone = new WebSocketServer({ server: server })
 
 
 // const model = 'fr-FR_BroadbandModel';
@@ -62,9 +61,6 @@ var textToSpeech = new TextToSpeechV1({
   password: tts_credentials.password
 });
 
-var stt_connected = false;
-var stt_ws = null;
-
 var n = stt_credentials.url.indexOf('://')
 var stt_ws_url = 'wss'+stt_credentials.url.substring(n)+'/v1/recognize?&watson-token='
 console.log('Base STT WS url', stt_ws_url)
@@ -106,21 +102,25 @@ function tts_stream (text, socket) {
   });
 }
 
+app.post('/event', bodyParser.json(), (req, res) => {
+  console.log('POST to event>', req.body)
+  res.sendStatus(200)
+})
+
 app.get('/answer', (req, res) => {
   console.log('GET on /answer')
 
-  const conn_id = Math.random().toString().substr(2,4)
-  const ws_url =
+  var conn_id = Math.random().toString().substr(2,4)
+  var ws_url =
     // (req.secure ? 'wss' : 'ws') + '://' +
     'ws://' +
     req.headers.host + '/server/' + conn_id
   console.log('ws_url:', ws_url)
 
+  var ws_phone = new WebSocketServer({ server: server });
+  ws_phone.on('connection', start_phone_ws);
+
   res.send([
-    // {
-    //   action: 'talk',
-    //   text: 'Please give Watson a moment to prepare'
-    // },
     {
       'action': 'connect',
       'endpoint': [
@@ -136,15 +136,16 @@ app.get('/answer', (req, res) => {
 
 })
 
-app.post('/event', bodyParser.json(), (req, res) => {
-  console.log('POST to event>', req.body)
-  res.sendStatus(200)
-})
-
-ws_phone.on('connection', ws => {
-  console.log('WebSocket connected at '+(new Date).toISOString())
+// ws_phone.on('connection', ws => {
+function start_phone_ws (ws) 
+{
   const url = ws.upgradeReq.url
+  console.log('WebSocket connected at '+(new Date).toISOString())
   console.log('url:', url);
+
+  var stt_connected = false;
+  var stt_ws = null;
+
 
   // Play greeting to verify audio will sream OK
   // code from https://github.com/Nexmo/nexmo-node/issues/124
@@ -236,7 +237,8 @@ ws_phone.on('connection', ws => {
     }
   })
 
-});
+// });
+}
 
 server.on('request', app)
 
