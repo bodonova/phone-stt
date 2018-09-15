@@ -1,2 +1,0 @@
-Welcome to the Watson speach to text demo phone line.
-You can say anything you like and after you pause, Watson will speak back what it heard

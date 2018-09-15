@@ -146,16 +146,10 @@ function start_phone_ws (ws)
   var stt_connected = false;
   var stt_ws = null;
 
-
-  // Play greeting to verify audio will sream OK
-  // code from https://github.com/Nexmo/nexmo-node/issues/124
-  const testFilePath = __dirname + '/greeting.wav';
-  console.log('Playing greeting from ', testFilePath);
-	// highWaterMark is set to the size of messages that the websocket receives from Nexmo
-	const rStream = fs.createReadStream(testFilePath, { highWaterMark: 1*320 })
-	rStream.on('data', (chunk) => {
-		ws.send(chunk)
-	})
+  // play a greeting to instruct the caller what to do
+  const greeting = 'Welcome to the Watson speach to text demo phone line.\n' +
+              'You can say anything you like and after you pause, Watson will speak back what it heard';
+  tts_stream(greeting, ws);
 
   stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
     if (error) {
