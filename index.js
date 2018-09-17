@@ -9,16 +9,24 @@ const watson = require('watson-developer-cloud')
 const TextToSpeechV1 = require('watson-developer-cloud/text-to-speech/v1');
 const WebSocket = require('ws');
 const WebSocketServer = require('ws').Server
+var ws_phone = new WebSocketServer({ server: server });
 
 
-// const model = 'fr-FR_BroadbandModel';
-const model = 'en-US_NarrowbandModel'; // for STT
+// model for STT
+const model = 'fr-FR_BroadbandModel';
+// const model = 'en-US_NarrowbandModel'; // for STT
 // const model = 'en-US_BroadandModel';
-//const my_voice = 'en-US_LisaVoice'; // for TTS
-const my_voice = 'en-GB_KateVoice'; // for TTS
 
-const audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
-const BUF_SIZE = 320; // a 20msec chunk - would be 640 for 16KHz
+// voice for TTS
+//const my_voice = 'en-US_LisaVoice'; // for TTS
+// const my_voice = 'en-GB_KateVoice'; 
+// const my_voice = 'en-US_AllisonVoice';
+const my_voice = 'fr-FR_ReneeVoice';
+
+// const audio_format =  'audio/l16;rate=8000' // ;channels=1;endianness=little-endian';
+// const BUF_SIZE = 320; // a 20msec chunk - would be 640 for 16KHz
+const audio_format =  'audio/l16;rate=16000' // ;channels=1;endianness=little-endian';
+const BUF_SIZE = 640; // a 20msec chunk - would be 640 for 16KHz
 // const audio_format =  'audio/l16;rate=16000' 
 // const BUF_SIZE = 6400; // a 20msec chunk - would be 320 for 8KHz
 
@@ -71,7 +79,7 @@ function tts_stream (text, socket) {
   var synthesizeParams = {
     text: text,
     accept: audio_format+';channels=1;endianness=little-endian',
-    voice: 'en-US_AllisonVoice'
+    voice: my_voice
   };
   const audio_req = textToSpeech.synthesize(synthesizeParams);
 
@@ -117,7 +125,6 @@ app.get('/answer', (req, res) => {
     req.headers.host + '/server/' + conn_id
   console.log('ws_url:', ws_url)
 
-  var ws_phone = new WebSocketServer({ server: server });
   ws_phone.on('connection', start_phone_ws);
 
   res.send([
@@ -136,9 +143,7 @@ app.get('/answer', (req, res) => {
 
 })
 
-// ws_phone.on('connection', ws => {
-function start_phone_ws (ws) 
-{
+function start_phone_ws (ws) {
   const url = ws.upgradeReq.url
   console.log('WebSocket connected at '+(new Date).toISOString())
   console.log('url:', url);
@@ -147,8 +152,11 @@ function start_phone_ws (ws)
   var stt_ws = null;
 
   // play a greeting to instruct the caller what to do
-  const greeting = 'Welcome to the Watson speach to text demo phone line.\n' +
-              'You can say anything you like and after you pause, Watson will speak back what it heard';
+  // const greeting = 'Welcome to the Watson speech to text demo phone line.\n' +
+  //             'You can say anything you like and after you pause, Watson will speak back what it heard';
+  const greeting = 'Bienvenue dans le discours de Watson sur la ligne de téléphone de démonstration, ' +
+                  'vous pouvez dire tout ce que vous voulez et après une pause, Watson parlera de ce qu\'il a entendu.'
+
   tts_stream(greeting, ws);
 
   stt_auth.getToken({url: stt_credentials.url}, (error, response) => {
@@ -196,7 +204,8 @@ function start_phone_ws (ws)
             transcript = json.results[0].alternatives[0].transcript
             transcript = transcript.replace('%HESITATION', '')
             if (json.results[0].final && ('' != transcript)) {
-              send_to_tts = 'Watson heard: '+transcript
+              // send_to_tts = 'Watson heard: '+transcript
+              send_to_tts = 'Watson entendu: '+transcript
               tts_stream(send_to_tts, ws);
             } else {
                 console.log('Ignore interim result', transcript)
